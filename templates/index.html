@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Sentiment Analysis</title>
+    <!-- Google Fonts: Poppins -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex flex-col items-center justify-center p-4 md:p-8">
+    <header class="w-full max-w-3xl mb-10 text-center">
+        <h1 class="text-4xl md:text-5xl font-bold text-indigo-800 mb-2">Movie Sentiment Analysis</h1>
+        <p class="text-lg text-gray-600">Paste your movie reviews and discover the sentiments instantly!</p>
+    </header>
+    
+    <main class="w-full max-w-3xl bg-white rounded-2xl shadow-xl p-6 md:p-8">
+        <!-- Input Section -->
+        <form id="reviewForm" class="space-y-6">
+            <div>
+                <label for="review" class="block text-sm font-medium text-gray-700 mb-2">
+                    Enter movie review(s) (one per line for batch analysis):
+                </label>
+                <textarea id="review" name="review" rows="8" class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow shadow-sm hover:shadow-md resize-y"></textarea>
+            </div>
+            <button type="submit" id="submitBtn" class="w-full bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center">
+                <span id="btnText">Analyze Sentiment</span>
+                <svg id="loadingSpinner" class="animate-spin ml-2 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+        </form>
+        
+        <!-- Output Section -->
+        <div id="results" class="mt-10 space-y-8 hidden">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-semibold text-indigo-800">Analysis Results</h2>
+                <button id="clearHistoryBtn" class="bg-red-500 text-white font-medium py-2 px-4 rounded-lg hover:bg-red-600 transition-colors hidden">Clear History</button>
+            </div>
+            <div id="singleResults" class="space-y-4"></div>
+            <div id="batchSummary" class="hidden bg-gray-50 p-6 rounded-lg shadow-inner">
+                <h3 class="text-xl font-medium text-gray-800 mb-4">Sentiment Distribution</h3>
+                <canvas id="distributionChart" class="w-full h-80 md:h-64"></canvas>
+            </div>
+            <div id="historySection" class="mt-8 hidden">
+                <h3 class="text-xl font-medium text-indigo-800 border-b pb-2 mb-4">Search History</h3>
+                <div id="historyResults" class="space-y-4"></div>
+            </div>
+        </div>
+    </main>
+    
+    <footer class="mt-8 text-center text-sm text-gray-600">
+        Developed by <a href="https://github.com/BenGJ10" target="_blank" class="text-indigo-600 hover:text-indigo-800 font-medium">Ben Gregory John</a>
+    </footer>
+    
+    <script>
+        const form = document.getElementById('reviewForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const btnText = document.getElementById('btnText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const resultsDiv = document.getElementById('results');
+        const singleResults = document.getElementById('singleResults');
+        const batchSummary = document.getElementById('batchSummary');
+        const historySection = document.getElementById('historySection');
+        const historyResults = document.getElementById('historyResults');
+        const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+        let chartInstance = null;
+        let searchHistory = []; // Store history in memory, resets on refresh
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            toggleLoading(true);
+            singleResults.innerHTML = '';
+            batchSummary.classList.add('hidden');
+
+            const formData = new FormData(form);
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    alert(data.error || 'An error occurred');
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                // Add to history
+                const timestamp = new Date().toLocaleString('en-US', { 
+                    hour: 'numeric', minute: 'numeric', hour12: true, 
+                    month: 'short', day: 'numeric', year: 'numeric' 
+                });
+                searchHistory.push({ timestamp, results: data.results, distribution: data.distribution });
+                updateHistory();
+
+                // Display current results
+                data.results.forEach(result => {
+                    const sentimentColor = result.sentiment === 'Positive' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-red-100 text-red-800 border-red-200';
+                    const icon = result.sentiment === 'Positive' ? 
+                        '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20H3v-2h2.5l1.5-.5 1.5-1 1.5-1.5V12h-2V10h4z"></path></svg>' : 
+                        '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2"></path></svg>';
+                    const div = document.createElement('div');
+                    div.className = `p-4 border rounded-lg shadow-sm hover:shadow-md transition-shadow ${sentimentColor}`;
+                    div.innerHTML = `
+                        <p class="text-sm text-gray-700 mb-3 italic">"${result.review}"</p>
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-2">
+                                ${icon}
+                                <span class="inline-block px-4 py-1 rounded-full text-sm font-medium bg-white border ${result.sentiment === 'Positive' ? 'border-green-300' : 'border-red-300'}">
+                                    ${result.sentiment}
+                                </span>
+                            </div>
+                            <span class="text-sm font-medium">Confidence: ${result.probability}</span>
+                        </div>
+                    `;
+                    singleResults.appendChild(div);
+                });
+                
+                if (data.distribution) {
+                    batchSummary.classList.remove('hidden');
+                    renderChart(data.distribution);
+                }
+                
+                resultsDiv.classList.remove('hidden');
+                clearHistoryBtn.classList.remove('hidden');
+            } catch (error) {
+                alert('An error occurred: ' + error.message);
+            } finally {
+                toggleLoading(false);
+            }
+        });
+
+        clearHistoryBtn.addEventListener('click', () => {
+            searchHistory = [];
+            updateHistory();
+            singleResults.innerHTML = '';
+            batchSummary.classList.add('hidden');
+            resultsDiv.classList.add('hidden');
+            clearHistoryBtn.classList.add('hidden');
+        });
+
+        function toggleLoading(isLoading) {
+            submitBtn.disabled = isLoading;
+            if (isLoading) {
+                btnText.textContent = 'Analyzing...';
+                loadingSpinner.classList.remove('hidden');
+            } else {
+                btnText.textContent = 'Analyze Sentiment';
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        function updateHistory() {
+            historyResults.innerHTML = '';
+            if (searchHistory.length > 0) {
+                historySection.classList.remove('hidden');
+                searchHistory.forEach((entry, index) => {
+                    const historyDiv = document.createElement('div');
+                    historyDiv.className = 'p-4 bg-gray-100 rounded-lg shadow-sm';
+                    historyDiv.innerHTML = `
+                        <p class="text-sm font-medium text-gray-800 mb-2">Search #${index + 1} - ${entry.timestamp}</p>
+                        <div class="space-y-2">
+                            ${entry.results.map(result => `
+                                <div class="text-sm ${result.sentiment === 'Positive' ? 'text-green-700' : 'text-red-700'}">
+                                    "${result.review}" — ${result.sentiment} (Confidence: ${result.probability})
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                    historyResults.appendChild(historyDiv);
+                });
+            } else {
+                historySection.classList.add('hidden');
+            }
+        }
+
+        function renderChart(dist) {
+            const ctx = document.getElementById('distributionChart').getContext('2d');
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+            chartInstance = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Positive', 'Negative'],
+                    datasets: [{
+                        data: [dist.positive, dist.negative],
+                        backgroundColor: ['#22c55e', '#ef4444'],
+                        borderColor: ['#16a34a', '#dc2626'],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    size: 14
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.raw + ' reviews';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
