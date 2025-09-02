@@ -213,4 +213,4 @@ project_directory/
 Contributions are welcome! Please open an issue or submit a pull request on [GitHub](https://github.com/BenGJ10/Movie-Sentiment-Analysis.git).
 
 ## Author
-Developed by [Ben Gregory John](https://github.com/BenGJ10)
+Developed by DynamicAK
